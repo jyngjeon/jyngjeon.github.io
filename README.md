@@ -1,3 +1,3 @@
 Personal resume, temporary use. 
 
-Built from [Notion](https://www.notion.so).
+Built from <a href="https://www.notion.so" target="_blank">Notion</a>.
