@@ -111,7 +111,7 @@
       <span>Tilt cap</span>
       <select id="capSel"><option selected>3</option><option>6</option><option>12</option></select>
       <button id="avaStart" style="padding:6px 14px;font-weight:700;border:none;border-radius:6px;cursor:pointer;color:#fff;background:#0e7490">▶ Start</button>
-      <button id="warPreset" title="cap 12, both depths 4 — reproduces the horizon-effect tilt war" style="padding:6px 14px;font-weight:700;border:none;border-radius:6px;cursor:pointer;color:#fff;background:#b91c1c">⚔️ Tilt-war demo</button>
+      <button id="warPreset" title="cap 12 + shallow depth → reproduces the horizon-effect tilt war. Deeper search does NOT remove it (it appears at every depth); lowering the tilt cap to 3 is what bounds it (≤4 exchanges)." style="padding:6px 14px;font-weight:700;border:none;border-radius:6px;cursor:pointer;color:#fff;background:#b91c1c">⚔️ Tilt-war demo</button>
     </div>
   </div>
 
@@ -129,7 +129,7 @@
 // ===================== Game + AI engine (mirrors game.py) =====================
 const ROWS = 6, COLS = 6, EMPTY = 0, HUMAN = 1, AI = 2, CONNECT = 4;
 let MAX_DEPTH = 6;
-let TILT_CAP = 3;   // adjustable so the demo can reproduce the pre-fix "tilt war"
+let TILT_CAP = 3;   // adjustable; a large "tilt war" needs a generous cap (the cap, not depth, bounds it)
 const EXACT = 0, LOWER = 1, UPPER = 2;
 
 const createBoard = () => Array.from({length: ROWS}, () => Array(COLS).fill(EMPTY));
@@ -237,7 +237,7 @@ function scorePosition(b){
   return score;
 }
 
-const stateKey = (b, tilts, mx) => b.flat().join("") + "|" + tilts[HUMAN] + tilts[AI] + (mx?1:0);
+const stateKey = (b, tilts, mx) => b.flat().join("") + "|" + tilts[HUMAN] + "," + tilts[AI] + "," + (mx?1:0);
 
 function minimax(b, tilts, depth, alpha, beta, maximizing, stats, tt){
   const alpha0 = alpha, beta0 = beta;
@@ -352,6 +352,7 @@ function initUI(){
 
   let board, tilts, gameOver, thinking, anim=null;
   let mode="hva", turn=HUMAN, avaRunning=false, avaTimer=null;
+  let gen=0;   // bumped on every newGame() so a pending AI reply from an old game is ignored
 
   const CELL_STEP = 62;   // 56px cell + 6px grid gap
 
@@ -430,20 +431,24 @@ function initUI(){
           cell.style.setProperty("--discY", `-${falls[key]}px`);
           movers.push(cell);
         }
-        // phase 1: spin the board upright; the discs ride along, still un-fallen
+        // phase 1: spin the board upright; the discs ride along, still un-fallen.
+        // A single rAF runs before paint, so Chrome never commits the rotated
+        // start state and the spin silently no-ops (Safari is more lenient).
+        // Forcing a reflow commits start (board + the raised discs) before we
+        // enable the transition, so start->end actually animates in both.
         const start = anim.dir==="R" ? -90 : 90;
         boardEl.style.transition="none";
         boardEl.style.transform=`rotate(${start}deg) scale(.9)`;
-        requestAnimationFrame(()=>{
-          boardEl.style.transition="transform .55s cubic-bezier(.34,1.2,.5,1)";
-          boardEl.style.transform="rotate(0deg) scale(1)";
-        });
-        // phase 2: once the board has settled, gravity pulls the discs down
+        void boardEl.offsetWidth;                 // commit the start state
+        boardEl.style.transition="transform .55s cubic-bezier(.34,1.2,.5,1)";
+        boardEl.style.transform="rotate(0deg) scale(1)";
+        // phase 2: once the board has settled, gravity pulls the discs down.
+        // Enable the transition first and commit it, then change the value, so
+        // the fall isn't a same-tick enable+change that Chrome may skip.
         setTimeout(()=>{
-          movers.forEach(cell=>{
-            cell.style.setProperty("--discTrans","transform .5s cubic-bezier(.34,.85,.4,1.15)");
-            cell.style.setProperty("--discY","0px");
-          });
+          movers.forEach(cell=>cell.style.setProperty("--discTrans","transform .5s cubic-bezier(.34,.85,.4,1.15)"));
+          void boardEl.offsetWidth;               // commit "transition on, still raised"
+          movers.forEach(cell=>cell.style.setProperty("--discY","0px"));
         }, 580);
       }
       anim=null;
@@ -519,7 +524,9 @@ function initUI(){
     // let the player's move animation finish, then a brief pause, before the AI replies
     // tilt = spin (~580ms) + gravity fall (~500ms); drop = single fall (~580ms)
     const wait = action[0]==="tilt" ? 1250 : 850;
-    setTimeout(()=>{ statusEl.textContent="AI is thinking…"; setTimeout(ai, 120); }, wait);
+    const g=gen;   // capture this game's token; bail if Reset / Mode-switch started a new one
+    setTimeout(()=>{ if(g!==gen) return; statusEl.textContent="AI is thinking…";
+                     setTimeout(()=>{ if(g!==gen) return; ai(); }, 120); }, wait);
   }
 
   function ai(){
@@ -571,6 +578,7 @@ function initUI(){
 
   function newGame(){
     stopAVA();
+    gen++;   // invalidate any AI reply still pending from the previous game
     board=createBoard(); tilts={[HUMAN]:TILT_CAP, [AI]:TILT_CAP};
     gameOver=false; thinking=false; turn=HUMAN;
     statusEl.textContent = mode==="ava" ? "AI vs AI — press Start." : "Your turn: drop a disc or tilt.";
@@ -600,7 +608,9 @@ function initUI(){
   };
   $("capSel").onchange=e=>{ TILT_CAP=parseInt(e.target.value,10); newGame(); };
   $("warPreset").onclick=()=>{
-    // pre-fix conditions: shallow depth + generous tilt budget -> horizon-effect tilt war
+    // generous tilt cap (12) + shallow depth -> a large horizon-effect tilt war.
+    // NOTE: deeper search does NOT remove it (the war appears at every depth);
+    // the tilt cap is what bounds it (cap 3 -> <=4 exchanges). Depth 4 here is just for speed.
     $("depthR").value="4"; $("depthY").value="4"; $("capSel").value="12";
     TILT_CAP=12; newGame();
     avaRunning=true; $("avaStart").textContent="⏸ Pause";
