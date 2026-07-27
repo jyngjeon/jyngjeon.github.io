@@ -1,3 +1,27 @@
 :root {
+  --hextra-max-page-width: 48rem;
+  --hextra-max-navbar-width: 48rem;
   --hextra-max-content-width: 48rem;
+}
+
+/* Site title in the navbar: normal weight instead of the theme's extrabold.
+   :first-child scopes this to the title link — the menu links are also
+   direct <a> children of <nav>, and the active one relies on font-weight. */
+.hextra-nav-container nav > a:first-child > span {
+  font-weight: 400;
+}
+
+/* Links take the surrounding text colour instead of the theme's blue.
+   The underline stays, so links are still distinguishable. */
+
+/* Prose links: home page bullets, in-post links, etc. Mirrors Hextra's own
+   selector from typography.css so `not-prose` regions keep their styling. */
+.content :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: inherit;
+}
+
+/* "Read more →" on blog list pages: the theme hardcodes an hsl(--primary-hue)
+   utility class on that anchor instead of routing it through .content. */
+#content a[class*="--primary-hue"] {
+  color: inherit;
 }
